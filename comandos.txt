@@ -1,0 +1,3 @@
+mpicc mpi_hello.c -o mpi_hello
+
+mpirun -np 4 ./mpi_hello
