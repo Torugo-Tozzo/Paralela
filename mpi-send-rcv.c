@@ -31,22 +31,22 @@ int main(int argc, char** argv) {
   int name_len;
   MPI_Get_processor_name(processor_name, &name_len);
 
-  if (world_rank == 0)
-  {
-    sleep(2);
-  }
-
-  
   printf("Hello world from processor %s, rank %d out of %d processors\n",
          processor_name, world_rank, world_size);
- 
 
-  MPI_Barrier(MPI_COMM_WORLD);
-
-
+  int number;
+  if (world_rank == 0)
+  {
+    number = -1;
+    MPI_Send(&number, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+  }
+  if (world_rank == 1)
+  {
+    MPI_Recv(&number, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    printf("Process 1 received number %d from process 0\n", number);
+  }
 
    // Finalize the MPI environment. No more MPI calls can be made after this
   MPI_Finalize();
 
-  printf("agora acabou processador %d\n", world_rank);
 }

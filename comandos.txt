@@ -1,5 +1,5 @@
 mpicc mpi_hello.c -o mpi_hello
 
-mpirun -np 4 ./mpi_hello
+mpirun -np 8 ./mpi_hello
 
 mpirun -np 10 --hostfile hostfile ./mpi_hello

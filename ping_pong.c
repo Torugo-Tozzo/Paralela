@@ -12,7 +12,7 @@
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
-  const int PING_PONG_LIMIT = 10;
+  const int PING_PONG_LIMIT = 100;
 
   // Initialize the MPI environment
   MPI_Init(NULL, NULL);
@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
     if (world_rank == ping_pong_count % 2) {
       // Increment the ping pong count before you send it
       ping_pong_count++;
-      MPI_Send(&ping_pong_count, 1, MPI_INT, partner_rank, 0, MPI_COMM_WORLD);
+      MPI_Ssend(&ping_pong_count, 1, MPI_INT, partner_rank, 0, MPI_COMM_WORLD);
       printf("%d sent and incremented ping_pong_count %d to %d\n",
              world_rank, ping_pong_count, partner_rank);
     } else {
