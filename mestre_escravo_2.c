@@ -1,105 +1,98 @@
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <mpi.h>
-#include <time.h> // Adicionado para a função time
+#include <time.h>
 
-#define MASTER_RANK 0
-#define TAG_DATA 0
-#define TAG_RESULT 1
-#define TAG_DONE 2
-#define CHUNK_SIZE 30 // Tamanho dos blocos de valores enviados
+#define NUM_ESCRAVOS 4 // Número de processos escravos
+#define TAMANHO_BLOCO 10000 // Aumentar o tamanho do bloco para tornar o trabalho mais demorado
+#define NUM_BLOCO_TOTAL 5 * (NUM_ESCRAVOS + 1) // Número total de blocos a serem gerados (M vezes o número de processos)
 
-int main(int argc, char** argv) {
+// Função para gerar um bloco de dados
+void gerar_dados(float *bloco, int tamanho) {
+    for (int i = 0; i < tamanho; i++) {
+        bloco[i] = (float)(rand() % 1000) / 10; // Números aleatórios entre 0.0 e 99.9
+    }
+}
+
+int main(int argc, char **argv) {
     int rank, size;
-    int* values = NULL;
-    int* sub_values = NULL;
-    int count;
-    int partial_sum;
-    int total_sum = 0;
-    MPI_Status status;
+    float *dados = NULL;
+    int blocos_por_escravo;
+    int num_blocos = NUM_BLOCO_TOTAL / NUM_ESCRAVOS;
+    float soma_total = 0;
+    float soma_local;
+    int i;
 
+    // Inicializar o MPI
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Inicializa o gerador de números aleatórios com a semente baseada no tempo
-    if (rank == MASTER_RANK) {
-        srand(time(NULL));
-    }
+    // Definir a semente aleatória baseada no tempo
+    srand(time(NULL));
 
-    if (rank == MASTER_RANK) {
-        int num_values = 1000; // Total de valores a serem processados
-        int remaining_values = num_values;
-        int start_index = 0;
-
-        // Aloca espaço para todos os valores (para o mestre)
-        values = (int*)malloc(num_values * sizeof(int));
-        for (int i = 0; i < num_values; i++) {
-            values[i] = rand() % 100; // Gera valores aleatórios
+    if (rank == 0) {
+        // Mestre
+        dados = (float*)malloc(NUM_BLOCO_TOTAL * TAMANHO_BLOCO * sizeof(float));
+        if (dados == NULL) {
+            fprintf(stderr, "Erro ao alocar memória.\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
-        // Envia blocos iniciais para os escravos
-        for (int i = 1; i < size; i++) {
-            int chunk_size = (remaining_values < CHUNK_SIZE) ? remaining_values : CHUNK_SIZE;
-            MPI_Send(&chunk_size, 1, MPI_INT, i, TAG_DATA, MPI_COMM_WORLD);
-            MPI_Send(values + start_index, chunk_size, MPI_INT, i, TAG_DATA, MPI_COMM_WORLD);
-            start_index += chunk_size;
-            remaining_values -= chunk_size;
+        // Gerar blocos de dados
+        for (i = 0; i < NUM_BLOCO_TOTAL; i++) {
+            gerar_dados(dados + i * TAMANHO_BLOCO, TAMANHO_BLOCO);
         }
 
-        // Envia tarefas adicionais enquanto há valores restantes
-        while (remaining_values > 0) {
-            // Recebe resultados dos escravos
-            MPI_Recv(&partial_sum, 1, MPI_INT, MPI_ANY_SOURCE, TAG_RESULT, MPI_COMM_WORLD, &status);
-            int source_rank = status.MPI_SOURCE; // Rank do escravo que enviou o resultado
-            total_sum += partial_sum;
-            
-            // Exibe o resultado recebido e de qual escravo veio
-            printf("Recebido %d do escravo %d\n", partial_sum, source_rank);
-
-            // Prepara novos dados para enviar ao escravo que acabou de enviar o resultado
-            int chunk_size = (remaining_values < CHUNK_SIZE) ? remaining_values : CHUNK_SIZE;
-            MPI_Send(&chunk_size, 1, MPI_INT, source_rank, TAG_DATA, MPI_COMM_WORLD);
-            MPI_Send(values + start_index, chunk_size, MPI_INT, source_rank, TAG_DATA, MPI_COMM_WORLD);
-            start_index += chunk_size;
-            remaining_values -= chunk_size;
+        // Enviar blocos para os escravos
+        for (i = 1; i < size; i++) {
+            for (int j = 0; j < num_blocos; j++) {
+                MPI_Send(dados + j * TAMANHO_BLOCO, TAMANHO_BLOCO, MPI_FLOAT, i, j, MPI_COMM_WORLD);
+            }
         }
 
-        // Envia sinais de término para os escravos
-        for (int i = 1; i < size; i++) {
-            int zero_chunk = 0;
-            MPI_Send(&zero_chunk, 1, MPI_INT, i, TAG_DONE, MPI_COMM_WORLD);
+        // Receber somas dos escravos
+        for (i = 1; i < size; i++) {
+            for (int j = 0; j < num_blocos; j++) {
+                MPI_Recv(&soma_local, 1, MPI_FLOAT, i, j, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                printf("Recebido do escravo %d, bloco %d: soma local = %f\n", i, j, soma_local);
+                soma_total += soma_local;
+            }
         }
 
-        // Recebe as somas finais dos processos
-        for (int i = 1; i < size; i++) {
-            MPI_Recv(&partial_sum, 1, MPI_INT, i, TAG_RESULT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            total_sum += partial_sum;
+        // Calcular a soma dos dados restantes do mestre (se houver)
+        soma_local = 0;
+        for (i = 0; i < TAMANHO_BLOCO; i++) {
+            soma_local += dados[i];
         }
+        soma_total += soma_local;
 
-        printf("Soma total: %d\n", total_sum);
-        free(values);
+        printf("Soma total: %f\n", soma_total);
+
+        free(dados);
     } else {
-        while (1) {
-            // Recebe o número de valores e os dados
-            MPI_Recv(&count, 1, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        // Escravos
+        float *bloco = (float*)malloc(TAMANHO_BLOCO * sizeof(float));
+        if (bloco == NULL) {
+            fprintf(stderr, "Erro ao alocar memória.\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
 
-            if (status.MPI_TAG == TAG_DONE) break; // Finaliza quando o mestre enviar o sinal de término
+        for (int j = 0; j < num_blocos; j++) {
+            // Receber bloco de dados do mestre
+            MPI_Recv(bloco, TAMANHO_BLOCO, MPI_FLOAT, 0, j, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            sub_values = (int*)malloc(count * sizeof(int));
-            MPI_Recv(sub_values, count, MPI_INT, MASTER_RANK, TAG_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            // Calcula a soma parcial
-            partial_sum = 0;
-            for (int i = 0; i < count; i++) {
-                partial_sum += sub_values[i];
+            // Calcular soma local
+            soma_local = 0;
+            for (i = 0; i < TAMANHO_BLOCO; i++) {
+                soma_local += bloco[i];
             }
 
-            // Envia a soma parcial de volta para o mestre
-            MPI_Send(&partial_sum, 1, MPI_INT, MASTER_RANK, TAG_RESULT, MPI_COMM_WORLD);
-
-            free(sub_values);
+            // Enviar soma local de volta ao mestre
+            MPI_Send(&soma_local, 1, MPI_FLOAT, 0, j, MPI_COMM_WORLD);
         }
+
+        free(bloco);
     }
 
     MPI_Finalize();
